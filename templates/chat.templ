@@ -1,8 +1,9 @@
 package templates
 
 import "temp0ral-chat/models"
+import "fmt"
 
-templ Chat(messages []models.Message, currentUserID string) {
+templ Chat(messages []models.Message, currentUserID string, activeSessions []models.Session) {
 	<!DOCTYPE html>
 	<html lang="en">
 		<head>
@@ -38,6 +39,98 @@ templ Chat(messages []models.Message, currentUserID string) {
 					padding: 20px;
 					display: flex;
 					flex-direction: column;
+				}
+
+				.main-content {
+					display: flex;
+					flex: 1;
+					gap: 20px;
+					min-height: 0;
+				}
+
+				.chat-area {
+					flex: 1;
+					display: flex;
+					flex-direction: column;
+					min-width: 0;
+				}
+
+				.user-sidebar {
+					width: 200px;
+					background-color: #333333;
+					border-radius: 4px;
+					border: 1px solid #4a4a4a;
+					display: flex;
+					flex-direction: column;
+					flex-shrink: 0;
+				}
+
+				.sidebar-header {
+					padding: 12px 15px;
+					border-bottom: 1px solid #4a4a4a;
+					font-weight: bold;
+					color: #00cccc;
+					font-size: 0.9rem;
+					text-transform: uppercase;
+					letter-spacing: 0.05rem;
+				}
+
+				#user-list {
+					flex: 1;
+					padding: 10px 0;
+					overflow-y: auto;
+					scrollbar-width: thin;
+					scrollbar-color: #4a4a4a #333333;
+				}
+
+				#user-list::-webkit-scrollbar {
+					width: 6px;
+				}
+
+				#user-list::-webkit-scrollbar-track {
+					background: #333333;
+				}
+
+				#user-list::-webkit-scrollbar-thumb {
+					background: #4a4a4a;
+					border-radius: 3px;
+				}
+
+				.user-item {
+					display: flex;
+					align-items: center;
+					padding: 8px 15px;
+					cursor: help;
+					transition: background-color 0.2s ease;
+				}
+
+				.user-item:hover {
+					background-color: #3c3c3c;
+				}
+
+				.user-status {
+					width: 8px;
+					height: 8px;
+					border-radius: 50%;
+					background-color: #00cc88;
+					margin-right: 10px;
+					flex-shrink: 0;
+				}
+
+				.user-id {
+					font-family: 'Roboto Mono', monospace;
+					font-size: 0.85rem;
+					color: #d9d9d9;
+					overflow: hidden;
+					text-overflow: ellipsis;
+				}
+
+				.user-count {
+					padding: 8px 15px;
+					border-top: 1px solid #4a4a4a;
+					font-size: 0.8rem;
+					color: #a0a0a0;
+					text-align: center;
 				}
 
 				.chat-header {
@@ -170,6 +263,42 @@ templ Chat(messages []models.Message, currentUserID string) {
 					padding-top: 10px;
 				}
 
+				#error-container {
+					margin-bottom: 10px;
+				}
+
+				.error-message {
+					background-color: rgba(255, 107, 107, 0.1);
+					border: 1px solid #ff6b6b;
+					border-radius: 4px;
+					padding: 12px 15px;
+					color: #ff6b6b;
+					font-size: 0.9rem;
+					text-align: center;
+					animation: slideIn 0.3s ease-out;
+				}
+
+				.error-link {
+					color: #00cccc;
+					text-decoration: underline;
+					transition: color 0.3s ease;
+				}
+
+				.error-link:hover {
+					color: #00b3b3;
+				}
+
+				@keyframes slideIn {
+					from {
+						opacity: 0;
+						transform: translateY(-10px);
+					}
+					to {
+						opacity: 1;
+						transform: translateY(0);
+					}
+				}
+
 				input[name="username"], input[name="chat_message"] {
 					flex-grow: 1;
 					background-color: #333333;
@@ -203,23 +332,81 @@ templ Chat(messages []models.Message, currentUserID string) {
 					box-shadow: 0 0 8px rgba(160, 160, 160, 0.4);
 				}
 
+				@media (max-width: 800px) {
+					.user-sidebar {
+						display: none; 
+					}
+
+					.main-content {
+						flex-direction: column;
+					}
+
+					.chat-area {
+						width: 100%; 
+					}
+				}
+
 				@media (max-width: 600px) {
 					.chat-container {
-						padding: 15px;
+						padding: 10px; 
+					}
+
+					.main-content {
+						gap: 10px; 
 					}
 
 					.chat-form {
-						gap: 5px;
+						gap: 8px;
+					}
+
+					.chat-form input[name="username"], 
+					.chat-form input[name="chat_message"] {
+						padding: 12px; 
+						font-size: 16px;
 					}
 
 					button {
 						width: 100%;
+						padding: 12px 20px; 
+						font-size: 16px; 
 					}
 
 					.chat-header {
 						flex-direction: column;
-						gap: 5px;
+						gap: 8px;
 						text-align: center;
+						padding-bottom: 15px;
+					}
+
+					.chat-title {
+						font-size: 1.8rem;
+					}
+
+					.user-info {
+						font-size: 0.85rem;
+					}
+
+					#messages {
+						padding: 8px;
+					}
+
+					.message {
+						padding: 8px 12px;
+						margin: 3px 0;
+					}
+
+					.message-timestamp {
+						font-size: 0.8rem;
+					}
+
+					.message-username {
+						font-size: 0.9rem;
+					}
+				}
+
+				@media (max-width: 1024px) and (min-width: 801px) {
+					.user-sidebar {
+						width: 180px; 
 					}
 				}
 			</style>
@@ -227,6 +414,17 @@ templ Chat(messages []models.Message, currentUserID string) {
 				document.addEventListener('htmx:wsAfterMessage', function() {
 					const messages = document.getElementById('messages');
 					messages.scrollTop = messages.scrollHeight;
+				});
+
+				document.addEventListener('DOMContentLoaded', function() {
+					const chatInput = document.querySelector('input[name="chat_message"]');
+					const errorContainer = document.getElementById('error-container');
+					
+					if (chatInput && errorContainer) {
+						chatInput.addEventListener('focus', function() {
+							errorContainer.innerHTML = '';
+						});
+					}
 				});
 			</script>
 		</head>
@@ -238,16 +436,39 @@ templ Chat(messages []models.Message, currentUserID string) {
 						Your ID: <span class="user-id">{ currentUserID }</span>
 					</div>
 				</div>
-				<div id="messages">
-					for _, msg := range messages {
-						@Message(msg)
-					}
+				
+				<div class="main-content">
+					<div class="chat-area">
+						<div id="messages">
+							for _, msg := range messages {
+								@Message(msg)
+							}
+						</div>
+						<form class="chat-form" ws-send>
+							<div id="error-container"></div>
+							<input name="username" placeholder="Anonymous" autocomplete="off"/>
+							<input name="chat_message" placeholder="Type your message..." autocomplete="off"/>
+							<button type="submit">Send</button>
+						</form>
+					</div>
+
+					<div class="user-sidebar">
+						<div class="sidebar-header">
+							Online Users
+						</div>
+						<div id="user-list">
+							for _, session := range activeSessions {
+								<div class="user-item" title={ "Session ID: " + session.UserID }>
+									<span class="user-status"></span>
+									<span class="user-id">{ session.UserID }</span>
+								</div>
+							}
+						</div>
+						<div class="user-count">
+							{ fmt.Sprintf("%d online", len(activeSessions)) }
+						</div>
+					</div>
 				</div>
-				<form class="chat-form" ws-send>
-					<input name="username" placeholder="Anonymous" autocomplete="off"/>
-					<input name="chat_message" placeholder="Type your message..." autocomplete="off"/>
-					<button type="submit">Send</button>
-				</form>
 			</div>
 		</body>
 	</html>

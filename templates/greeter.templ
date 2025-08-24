@@ -1,6 +1,6 @@
 package templates
 
-templ Greeter() {
+templ Greeter(errorMsg string) {
 	<!DOCTYPE html>
 	<html lang="en">
 		<head>
@@ -81,8 +81,18 @@ templ Greeter() {
 				}
 				.error {
 					color: #ff6b6b;
-					margin-top: 1rem;
-					display: none;
+					background-color: rgba(255, 107, 107, 0.1);
+					border: 1px solid #ff6b6b;
+					padding: 0.75rem;
+					border-radius: 4px;
+					margin-bottom: 1rem;
+					font-size: 0.9rem;
+					text-align: center;
+					animation: fadeIn 0.3s ease-in;
+				}
+				@keyframes fadeIn {
+					from { opacity: 0; transform: translateY(-10px); }
+					to { opacity: 1; transform: translateY(0); }
 				}
 			</style>
 		</head>
@@ -90,6 +100,20 @@ templ Greeter() {
 			<div class="container">
 				<h1 class="title">temp0ral-chat</h1>
 				<p class="subtitle"><i>Welcome</i></p>
+				if errorMsg != "" {
+					<div class="error">
+						switch errorMsg {
+							case "invalid_key":
+								Invalid access key. Please try again.
+							case "session_expired":
+								Your session has expired. Please reauthenticate again.
+							case "no_session":
+								Please authenticate to access the chat.
+							default:
+								An error occurred. Please try again.
+						}
+					</div>
+				}
 				<form class="auth-form" method="POST" action="/auth">
 					<input
 						type="password"

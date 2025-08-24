@@ -26,11 +26,15 @@ const (
 	dbPassword = ""
 	dbName     = ""
 	dbHost     = ""
-	dbPort     = "5432" // default port is already goated but do as thou wilt ig
+	dbPort     = "5432"
 
-	accessKey = "secret" // Change in production bruh
+	accessKey = "test" // Change in prod bruh!!
 
-	sessionDuration = 24 * time.Hour
+	// Custom session cookie duration
+	sessionDuration = 5 * time.Hour
+
+	// Cleanup interval for expired sessions and messages
+	cleanupInterval = 30 * time.Second
 )
 
 var db *sql.DB
@@ -45,14 +49,9 @@ type Hub struct {
 	mutex     sync.Mutex
 }
 
-type Session struct {
-	ID        string
-	UserID    string
-	ExpiresAt time.Time
-}
+type Session = models.Session
 
-// use database or redis in production!
-var sessions = make(map[string]Session)
+var sessions = make(map[string]models.Session)
 var sessionsMutex sync.RWMutex
 
 var hub = Hub{
@@ -74,20 +73,21 @@ func (h *Hub) run() {
 	}
 }
 
-func generateID(length int) string {
+func generateRandomString(length int) string {
 	bytes := make([]byte, length)
 	rand.Read(bytes)
 	return hex.EncodeToString(bytes)
 }
 
-func createSession() Session {
-	sessionID := generateID(16)
-	userID := generateID(8)
+func createSession() models.Session {
+	sessionID := generateRandomString(16)
+	userID := generateRandomString(8)
 
-	session := Session{
+	session := models.Session{
 		ID:        sessionID,
 		UserID:    userID,
 		ExpiresAt: time.Now().Add(sessionDuration),
+		CreatedAt: time.Now(),
 	}
 
 	sessionsMutex.Lock()
@@ -97,32 +97,170 @@ func createSession() Session {
 	return session
 }
 
-func getSession(sessionID string) (Session, bool) {
+func getSession(sessionID string) (models.Session, bool) {
 	sessionsMutex.RLock()
 	defer sessionsMutex.RUnlock()
 
 	session, exists := sessions[sessionID]
 	if !exists {
-		return Session{}, false
+		return models.Session{}, false
 	}
 
 	if time.Now().After(session.ExpiresAt) {
-		sessionsMutex.RUnlock()
-		sessionsMutex.Lock()
-		delete(sessions, sessionID)
-		sessionsMutex.Unlock()
-		sessionsMutex.RLock()
-		return Session{}, false
+		return models.Session{}, false
 	}
 
 	return session, true
+}
+
+func cleanupExpiredSessions() {
+	sessionsMutex.Lock()
+
+	var expiredUserIDs []string
+	now := time.Now()
+	hadExpiredSessions := false
+
+	for sessionID, session := range sessions {
+		if now.After(session.ExpiresAt) {
+			expiredUserIDs = append(expiredUserIDs, session.UserID)
+			delete(sessions, sessionID)
+			hadExpiredSessions = true
+		}
+	}
+
+	sessionsMutex.Unlock()
+
+	if len(expiredUserIDs) > 0 {
+		go func(userIDs []string) {
+			for _, userID := range userIDs {
+				_, err := db.Exec("DELETE FROM messages WHERE user_id = $1", userID)
+				if err != nil {
+					log.Printf("Error deleting messages for expired user %s: %v", userID, err)
+				} else {
+					log.Printf("Deleted messages for expired session user: %s", userID)
+				}
+			}
+
+			_, err := db.Exec("DELETE FROM messages WHERE id NOT IN (SELECT id FROM messages ORDER BY created_at DESC LIMIT 500)")
+			if err != nil {
+				log.Printf("Error during message cleanup: %v", err)
+			}
+		}(expiredUserIDs)
+	}
+
+	if hadExpiredSessions {
+		broadcastUserList()
+	}
+}
+
+func getActiveUserIDs() []string {
+	sessionsMutex.RLock()
+	defer sessionsMutex.RUnlock()
+
+	var activeUserIDs []string
+	now := time.Now()
+
+	for _, session := range sessions {
+		if now.Before(session.ExpiresAt) {
+			activeUserIDs = append(activeUserIDs, session.UserID)
+		}
+	}
+
+	return activeUserIDs
+}
+
+func getActiveSessions() []models.Session {
+	sessionsMutex.RLock()
+	defer sessionsMutex.RUnlock()
+
+	var activeSessions []models.Session
+	now := time.Now()
+
+	for _, session := range sessions {
+		if now.Before(session.ExpiresAt) {
+			activeSessions = append(activeSessions, session)
+		}
+	}
+
+	for i := 0; i < len(activeSessions)-1; i++ {
+		for j := i + 1; j < len(activeSessions); j++ {
+			if activeSessions[i].CreatedAt.After(activeSessions[j].CreatedAt) {
+				activeSessions[i], activeSessions[j] = activeSessions[j], activeSessions[i]
+			}
+		}
+	}
+
+	return activeSessions
+}
+
+func broadcastUserList() {
+	activeSessions := getActiveSessions()
+
+	userListHTML := `<div hx-swap-oob="innerHTML:#user-list">`
+	for _, session := range activeSessions {
+		userListHTML += `<div class="user-item" title="Session ID: ` + session.UserID + `">
+			<span class="user-status"></span>
+			<span class="user-id">` + session.UserID + `</span>
+		</div>`
+	}
+	userListHTML += `</div>`
+
+	hub.mutex.Lock()
+	for client := range hub.clients {
+		err := client.WriteMessage(websocket.TextMessage, []byte(userListHTML))
+		if err != nil {
+			client.Close()
+			delete(hub.clients, client)
+		}
+	}
+	hub.mutex.Unlock()
+}
+
+func startPeriodicCleanup() {
+	ticker := time.NewTicker(cleanupInterval)
+	go func() {
+		for range ticker.C {
+			cleanupExpiredSessions()
+
+			activeUserIDs := getActiveUserIDs()
+			if len(activeUserIDs) > 0 {
+				placeholders := make([]string, len(activeUserIDs))
+				args := make([]interface{}, len(activeUserIDs))
+				for i, userID := range activeUserIDs {
+					placeholders[i] = "$" + string(rune('0'+i+1))
+					args[i] = userID
+				}
+
+				query := "DELETE FROM messages WHERE user_id NOT IN (" + strings.Join(placeholders, ",") + ")"
+				result, err := db.Exec(query, args...)
+				if err != nil {
+					log.Printf("Error cleaning up orphaned messages: %v", err)
+				} else {
+					rowsAffected, _ := result.RowsAffected()
+					if rowsAffected > 0 {
+						log.Printf("Cleaned up %d orphaned messages", rowsAffected)
+					}
+				}
+			} else {
+				result, err := db.Exec("DELETE FROM messages")
+				if err != nil {
+					log.Printf("Error clearing all messages: %v", err)
+				} else {
+					rowsAffected, _ := result.RowsAffected()
+					if rowsAffected > 0 {
+						log.Printf("Cleared all messages due to no active sessions: %d messages", rowsAffected)
+					}
+				}
+			}
+		}
+	}()
 }
 
 func authMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		cookie, err := c.Cookie("session_id")
 		if err != nil {
-			c.Redirect(http.StatusFound, "/")
+			c.Redirect(http.StatusFound, "/?error=no_session")
 			c.Abort()
 			return
 		}
@@ -130,7 +268,7 @@ func authMiddleware() gin.HandlerFunc {
 		session, exists := getSession(cookie)
 		if !exists {
 			c.SetCookie("session_id", "", -1, "/", "", false, true)
-			c.Redirect(http.StatusFound, "/")
+			c.Redirect(http.StatusFound, "/?error=session_expired")
 			c.Abort()
 			return
 		}
@@ -141,7 +279,8 @@ func authMiddleware() gin.HandlerFunc {
 }
 
 func greeter(c *gin.Context) {
-	component := templates.Greeter()
+	errorMsg := c.Query("error")
+	component := templates.Greeter(errorMsg)
 	handler := templ.Handler(component)
 	handler.ServeHTTP(c.Writer, c.Request)
 }
@@ -150,7 +289,7 @@ func authenticate(c *gin.Context) {
 	providedKey := c.PostForm("access_key")
 
 	if providedKey != accessKey {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid access key"})
+		c.Redirect(http.StatusFound, "/?error=invalid_key")
 		return
 	}
 
@@ -163,13 +302,39 @@ func authenticate(c *gin.Context) {
 
 func home(c *gin.Context) {
 	session, _ := c.Get("session")
-	userSession := session.(Session)
+	userSession := session.(models.Session)
 
-	rows, err := db.Query(`
+	activeSessions := getActiveSessions()
+	activeUserIDs := make([]string, len(activeSessions))
+	for i, sess := range activeSessions {
+		activeUserIDs[i] = sess.UserID
+	}
+
+	if len(activeUserIDs) == 0 {
+		component := templates.Chat([]models.Message{}, userSession.UserID, activeSessions)
+		handler := templ.Handler(component)
+		handler.ServeHTTP(c.Writer, c.Request)
+		return
+	}
+
+	placeholders := make([]string, len(activeUserIDs))
+	args := make([]interface{}, len(activeUserIDs))
+	for i, userID := range activeUserIDs {
+		placeholders[i] = "$" + string(rune('0'+i+1))
+		args[i] = userID
+	}
+
+	query := `
 		SELECT id, username, content, created_at, user_id
-		FROM (SELECT * FROM messages ORDER BY created_at DESC LIMIT 500) sub 
+		FROM (
+			SELECT * FROM messages 
+			WHERE user_id IN (` + strings.Join(placeholders, ",") + `)
+			ORDER BY created_at DESC LIMIT 500
+		) sub 
 		ORDER BY created_at ASC
-	`)
+	`
+
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		c.String(http.StatusInternalServerError, "Database error")
 		return
@@ -186,7 +351,7 @@ func home(c *gin.Context) {
 		messages = append(messages, m)
 	}
 
-	component := templates.Chat(messages, userSession.UserID)
+	component := templates.Chat(messages, userSession.UserID, activeSessions)
 	handler := templ.Handler(component)
 	handler.ServeHTTP(c.Writer, c.Request)
 }
@@ -198,7 +363,7 @@ func wsHandler(c *gin.Context) {
 		return
 	}
 
-	userSession := session.(Session)
+	userSession := session.(models.Session)
 
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -210,6 +375,8 @@ func wsHandler(c *gin.Context) {
 	hub.clients[conn] = true
 	hub.mutex.Unlock()
 
+	broadcastUserList()
+
 	for {
 		_, messageBytes, err := conn.ReadMessage()
 		if err != nil {
@@ -217,6 +384,7 @@ func wsHandler(c *gin.Context) {
 			delete(hub.clients, conn)
 			hub.mutex.Unlock()
 			conn.Close()
+			broadcastUserList()
 			return
 		}
 
@@ -233,6 +401,23 @@ func wsHandler(c *gin.Context) {
 		username, _ := payload["username"].(string)
 		if username == "" {
 			username = "Anon"
+		}
+
+		if _, valid := getSession(userSession.ID); !valid {
+			errorHTML := `<div hx-swap-oob="innerHTML:#error-container">
+				<div class="error-message">
+					Your session has expired. Please <a href="/" class="error-link">refresh the page</a> to continue.
+				</div>
+			</div>`
+
+			err := conn.WriteMessage(websocket.TextMessage, []byte(errorHTML))
+			if err != nil {
+				log.Println("Error sending session expired message:", err)
+			}
+
+			time.Sleep(100 * time.Millisecond)
+			conn.Close()
+			return
 		}
 
 		var newID int
@@ -290,6 +475,23 @@ func main() {
 		log.Fatal("Table creation error:", err)
 	}
 
+	_, err = db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages(user_id)
+	`)
+	if err != nil {
+		log.Fatal("Index creation error:", err)
+	}
+
+	_, err = db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at DESC)
+	`)
+	if err != nil {
+		log.Fatal("Index creation error:", err)
+	}
+
+	startPeriodicCleanup()
+	log.Println("Started periodic session and message cleanup")
+
 	go hub.run()
 
 	r := gin.Default()
@@ -297,5 +499,7 @@ func main() {
 	r.POST("/auth", authenticate)
 	r.GET("/chat", authMiddleware(), home)
 	r.GET("/ws", authMiddleware(), wsHandler)
+
+	log.Printf("Server starting on :8080 with session duration: %v", sessionDuration)
 	r.Run(":8080")
 }

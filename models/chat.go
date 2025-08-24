@@ -9,3 +9,10 @@ type Message struct {
 	UserID    string
 	CreatedAt time.Time
 }
+
+type Session struct {
+	ID        string
+	UserID    string
+	ExpiresAt time.Time
+	CreatedAt time.Time
+}
