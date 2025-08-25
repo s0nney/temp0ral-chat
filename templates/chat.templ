@@ -2,6 +2,7 @@ package templates
 
 import "temp0ral-chat/models"
 import "fmt"
+import "strings"
 
 templ Chat(messages []models.Message, currentUserID string, activeSessions []models.Session) {
 	<!DOCTYPE html>
@@ -203,6 +204,17 @@ templ Chat(messages []models.Message, currentUserID string, activeSessions []mod
 					background-color: #2d4a4a;
 				}
 
+				.message.reply-highlight {
+					border-left-color: #ffcc00;
+					background-color: #4a4a2d;
+					animation: highlightPulse 2s ease-in-out;
+				}
+
+				@keyframes highlightPulse {
+					0%, 100% { opacity: 1; }
+					50% { opacity: 0.7; }
+				}
+
 				.message-timestamp {
 					color: #a0a0a0;
 					margin-right: 8px;
@@ -213,7 +225,7 @@ templ Chat(messages []models.Message, currentUserID string, activeSessions []mod
 					color: #d9d9d9;
 					font-weight: bold;
 					margin-right: 8px;
-					cursor: help;
+					cursor: pointer;
 					position: relative;
 					transition: color 0.3s ease;
 				}
@@ -254,6 +266,15 @@ templ Chat(messages []models.Message, currentUserID string, activeSessions []mod
 				.message-username:hover .user-id-tooltip {
 					opacity: 1;
 					visibility: visible;
+				}
+
+				.reply-mention {
+					color: #00cccc;
+					font-weight: bold;
+					background-color: rgba(0, 204, 204, 0.1);
+					padding: 2px 4px;
+					border-radius: 3px;
+					margin-right: 5px;
 				}
 
 				.chat-form {
@@ -414,6 +435,8 @@ templ Chat(messages []models.Message, currentUserID string, activeSessions []mod
 				document.addEventListener('htmx:wsAfterMessage', function() {
 					const messages = document.getElementById('messages');
 					messages.scrollTop = messages.scrollHeight;
+					
+					highlightRepliedMessages();
 				});
 
 				document.addEventListener('DOMContentLoaded', function() {
@@ -425,6 +448,77 @@ templ Chat(messages []models.Message, currentUserID string, activeSessions []mod
 							errorContainer.innerHTML = '';
 						});
 					}
+					
+					highlightRepliedMessages();
+					
+					addUsernameClickHandlers();
+				});
+
+				function addUsernameClickHandlers() {
+					const usernames = document.querySelectorAll('.message-username');
+					const chatInput = document.querySelector('input[name="chat_message"]');
+					
+					usernames.forEach(username => {
+						username.addEventListener('click', function(e) {
+							e.preventDefault();
+							
+							const tooltip = this.querySelector('.user-id-tooltip');
+							if (tooltip && chatInput) {
+								const fullId = tooltip.textContent.replace('ID: ', '');
+								const shortId = fullId.substring(0, 4);
+								
+								const currentValue = chatInput.value;
+								const mention = '@' + shortId + ' ';
+								
+								if (currentValue && !currentValue.endsWith(' ')) {
+									chatInput.value = currentValue + ' ' + mention;
+								} else {
+									chatInput.value = currentValue + mention;
+								}
+								
+								chatInput.focus();
+								chatInput.setSelectionRange(chatInput.value.length, chatInput.value.length);
+							}
+						});
+					});
+				}
+
+				function highlightRepliedMessages() {
+					const messages = document.querySelectorAll('.message');
+					
+					messages.forEach(message => {
+						const content = message.textContent;
+						const userIdElement = message.querySelector('.user-id-tooltip');
+						
+						if (!userIdElement) return;
+						
+						const fullUserId = userIdElement.textContent.replace('ID: ', '');
+						const shortUserId = fullUserId.substring(0, 4);
+						
+						const mentionPattern = new RegExp('@' + shortUserId + '\\b');
+						let isRepliedTo = false;
+						
+						messages.forEach(otherMessage => {
+							if (otherMessage !== message) {
+								const otherContent = otherMessage.textContent;
+								if (mentionPattern.test(otherContent)) {
+									isRepliedTo = true;
+								}
+							}
+						});
+						
+						if (isRepliedTo) {
+							message.classList.add('reply-highlight');
+						} else {
+							message.classList.remove('reply-highlight');
+						}
+					});
+				}
+
+				document.addEventListener('htmx:wsAfterMessage', function() {
+					setTimeout(() => {
+						addUsernameClickHandlers();
+					}, 100);
 				});
 			</script>
 		</head>
@@ -433,7 +527,7 @@ templ Chat(messages []models.Message, currentUserID string, activeSessions []mod
 				<div class="chat-header">
 					<h1 class="chat-title">temp0ral-chat</h1>
 					<div class="user-info">
-						Your ID: <span class="user-id">{ currentUserID }</span>
+						Your ID: <span class="user-id">{ currentUserID[:4] }</span>
 					</div>
 				</div>
 				
@@ -460,7 +554,7 @@ templ Chat(messages []models.Message, currentUserID string, activeSessions []mod
 							for _, session := range activeSessions {
 								<div class="user-item" title={ "Session ID: " + session.UserID }>
 									<span class="user-status"></span>
-									<span class="user-id">{ session.UserID }</span>
+									<span class="user-id">{ session.UserID[:4] }</span>
 								</div>
 							}
 						</div>
@@ -475,12 +569,52 @@ templ Chat(messages []models.Message, currentUserID string, activeSessions []mod
 }
 
 templ Message(msg models.Message) {
-	<div class="message">
+	<div class="message" data-user-id={ msg.UserID }>
 		<span class="message-timestamp">[{ msg.CreatedAt.Format("15:04:05") }]</span>
 		<span class="message-username">
 			{ msg.Username }
 			<div class="user-id-tooltip">ID: { msg.UserID }</div>
 		</span>
-		{ msg.Content }
+		@parseMessageContent(msg.Content)
 	</div>
+}
+
+templ parseMessageContent(content string) {
+	@templ.Raw(highlightMentions(content))
+}
+
+func highlightMentions(content string) string {
+	words := strings.Fields(content)
+	var result strings.Builder
+	
+	for i, word := range words {
+		if len(word) >= 5 && word[0] == '@' && len(word[1:5]) == 4 {
+			isHex := true
+			for _, char := range word[1:5] {
+				if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')) {
+					isHex = false
+					break
+				}
+			}
+			
+			if isHex {
+				result.WriteString(`<span class="reply-mention">`)
+				result.WriteString(word[:5]) 
+				result.WriteString(`</span>`)
+				if len(word) > 5 {
+					result.WriteString(word[5:]) 
+				}
+			} else {
+				result.WriteString(word)
+			}
+		} else {
+			result.WriteString(word)
+		}
+		
+		if i < len(words)-1 {
+			result.WriteString(" ")
+		}
+	}
+	
+	return result.String()
 }

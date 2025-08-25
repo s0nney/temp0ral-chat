@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -28,7 +29,7 @@ const (
 	dbHost     = ""
 	dbPort     = "5432"
 
-	accessKey = "test" // Change in prod bruh!!
+	accessKey = "test" // Change in prod
 
 	// Custom session cookie duration
 	sessionDuration = 5 * time.Hour
@@ -198,16 +199,22 @@ func broadcastUserList() {
 
 	userListHTML := `<div hx-swap-oob="innerHTML:#user-list">`
 	for _, session := range activeSessions {
+		shortID := session.UserID[:4]
 		userListHTML += `<div class="user-item" title="Session ID: ` + session.UserID + `">
 			<span class="user-status"></span>
-			<span class="user-id">` + session.UserID + `</span>
+			<span class="user-id">` + shortID + `</span>
 		</div>`
 	}
 	userListHTML += `</div>`
 
+	countHTML := `<div hx-swap-oob="innerHTML:.user-count">` +
+		fmt.Sprintf("%d online", len(activeSessions)) + `</div>`
+
+	fullUpdate := userListHTML + countHTML
+
 	hub.mutex.Lock()
 	for client := range hub.clients {
-		err := client.WriteMessage(websocket.TextMessage, []byte(userListHTML))
+		err := client.WriteMessage(websocket.TextMessage, []byte(fullUpdate))
 		if err != nil {
 			client.Close()
 			delete(hub.clients, client)
