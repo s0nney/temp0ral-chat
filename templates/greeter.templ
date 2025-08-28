@@ -1,0 +1,41 @@
+package templates
+
+templ Greeter(errorMsg string) {
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<link rel="stylesheet" type="text/css" href="/greeter.css">
+	<title>temp0ral-chat</title>
+</head>
+
+<body class="bg-dark text-light">
+	<div class="container">
+		<h1 class="title">temp0ral-chat</h1>
+		<p class="subtitle"><i>Welcome</i></p>
+		if errorMsg != "" {
+		<div class="error">
+			switch errorMsg {
+			case "invalid_key":
+			Invalid access key. Please try again.
+			case "session_expired":
+			Your session has expired. Please reauthenticate again.
+			case "no_session":
+			Please authenticate to access the chat.
+			default:
+			An error occurred. Please try again.
+			}
+		</div>
+		}
+		<form class="auth-form" method="POST" action="/auth">
+			<input type="password" name="access_key" placeholder="access key required" class="input" maxlength="50"
+				required autocomplete="off" />
+			<button type="submit" class="button">Enter</button>
+		</form>
+	</div>
+</body>
+
+</html>
+}

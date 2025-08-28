@@ -1,0 +1,213 @@
+package templates
+
+import "temp0ral-chat/models"
+import "temp0ral-chat/controllers"
+import "fmt"
+import "strings"
+
+var kaomojis = []string{
+	"(ノ°益°)ノ",
+	"ヽ(`Д´)ﾉ",
+	"( ´ ▽ ` )ﾉ",
+	"(￣▽￣)", 
+	"(￣▽￣)ノ",
+	"(,,>﹏<,,)", 
+	"( ͡° ͜ʖ ͡°)", 
+	"┬─┬ノ( º _ ºノ)",
+	}
+
+templ Chat(messages []models.Message, currentUserID string,
+	activeSessions []models.Session) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<link rel="stylesheet" type="text/css" href="/chat.css"/>
+			<title>temp0ral-chat</title>
+			<script src="https://unpkg.com/htmx.org@1.9.10"></script>
+			<script src="https://unpkg.com/htmx.org/dist/ext/ws.js"></script>
+		</head>
+		<body>
+			<div class="chat-container" hx-ext="ws" ws-connect="/ws">
+				<div class="chat-header">
+					<h1 class="chat-title">temp0ral-chat</h1>
+					<div class="user-info">
+						Your ID: <span class="user-id">{ currentUserID[:8] }</span>
+					</div>
+				</div>
+				<div class="main-content">
+					<div class="chat-area">
+						<div id="messages">
+							for _, msg := range messages {
+								@Message(msg)
+							}
+						</div>
+<form 
+							class="chat-form" 
+							hx-post="/send-message" 
+							hx-target="#messages" 
+							hx-swap="beforeend"
+							enctype="multipart/form-data"
+						>
+							<div id="error-container"></div>
+							<input name="username" placeholder="Anonymous" autocomplete="off"/>
+							<input
+								name="chat_message"
+								id="message-input"
+								placeholder="Type your message..."
+								autocomplete="off"
+							/>
+							<input 
+								type="file" 
+								id="file-input" 
+								name="image" 
+								accept="image/*"
+								style="display: none;"
+							/>
+							<div class="form-buttons">
+								<button type="submit">Send</button>
+								<button 
+									type="button" 
+									onclick="document.getElementById('file-input').click()"
+									title="Upload Image"
+								>📷</button>
+								<button
+									type="button"
+									hx-get="/emojis"
+									hx-target="#emoji-picker"
+									hx-swap="innerHTML"
+								>(◕‿◕)</button>
+							</div>
+							<div id="file-preview"></div>
+							<div id="emoji-picker"></div>
+						</form>
+					</div>
+					<div class="user-sidebar">
+						<div class="sidebar-header">
+							Online Users
+						</div>
+						<div id="user-list">
+							for _, session := range activeSessions {
+								<div class="user-item" title={ "Session ID: " + session.UserID }>
+									<span class="user-status user-status-online"></span>
+									<span class="user-id">{ session.UserID[:8] }</span>
+								</div>
+							}
+						</div>
+						<div class="user-count">
+							{ fmt.Sprintf("%d online", len(activeSessions)) }
+						</div>
+						<form method="post" action="/logout" class="logout-form">
+							<button type="submit" class="logout-button">Kill Session</button>
+						</form>
+					</div>
+				</div>
+			</div>
+			<script src="/chat.js"></script>
+		</body>
+	</html>
+}
+
+templ Message(msg models.Message) {
+	<div class="message" data-user-id={ msg.UserID } id={ "msg-" + fmt.Sprintf("%d", msg.ID) }>
+		<button 
+			class="delete-message-btn" 
+			hx-delete={ "/delete-message/" + fmt.Sprintf("%d", msg.ID) }
+			hx-target={ "#msg-" + fmt.Sprintf("%d", msg.ID) }
+			hx-swap="outerHTML"
+			hx-confirm="Delete this message?"
+			title="Delete message"
+			data-owner-id={ msg.UserID }
+		>
+			×
+		</button>
+		<span class="message-timestamp">[{ msg.CreatedAt.Format("15:04:05") }]</span>
+		<span class="message-username">
+			{ msg.Username }:
+			<div class="user-id-tooltip">ID: { msg.UserID }</div>
+		</span>
+		if msg.Content != "" {
+			<span class="message-content">
+				@parseMessageContent(msg.Content)
+			</span>
+		}
+		if msg.ImagePath != "" {
+			<div class="message-image">
+				<img src={ msg.ImagePath } alt="User uploaded image" loading="lazy" />
+			</div>
+		}
+	</div>
+}
+
+templ parseMessageContent(content string) {
+	@templ.Raw(controllers.PostProcessor(content))
+}
+
+func highlightMentions(content string) string {
+	words := strings.Fields(content)
+	var result strings.Builder
+
+	for i, word := range words {
+		if len(word) >= 5 && word[0] == '@' && len(word[1:5]) == 4 {
+			isHex := true
+			for _, char := range word[1:5] {
+				if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')) {
+					isHex = false
+					break
+				}
+			}
+			if isHex {
+				result.WriteString(`<span class="reply-mention">`)
+				result.WriteString(word[:5])
+				result.WriteString(`</span>`)
+				if len(word) > 5 {
+					result.WriteString(word[5:])
+				}
+			} else {
+				result.WriteString(word)
+			}
+		} else {
+			result.WriteString(word)
+		}
+
+		if i < len(words)-1 {
+			result.WriteString(" ")
+		}
+	}
+
+	return result.String()
+}
+
+templ MessageInput(content string) {
+	<textarea name=" chat_message" placeholder="Type a message..." required>{ content }</textarea>
+}
+
+templ EmojiPicker() {
+	<div class="emoji-picker">
+		<button
+			class="emoji-button"
+			hx-target="#emoji-picker"
+			hx-swap="innerHTML"
+			hx-on:click="this.parentElement.innerHTML = ''"
+			type="button"
+			style="background-color: #e53935; border-color: #d32f2f;"
+		>
+			✕
+		</button>
+		for _, emoji := range kaomojis {
+			<button
+				class="emoji-button"
+				hx-post="/add-emoji"
+				hx-include="[name='chat_message']"
+				hx-target="#message-input"
+				hx-swap="outerHTML"
+				name="emoji"
+				value={ emoji }
+				type="button"
+			>
+				{ emoji }
+			</button>
+		}
+	</div>
+}
