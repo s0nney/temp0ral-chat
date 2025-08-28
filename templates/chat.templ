@@ -1,7 +1,6 @@
 package templates
 
 import "temp0ral-chat/models"
-import "temp0ral-chat/controllers"
 import "fmt"
 import "strings"
 
@@ -141,7 +140,7 @@ templ Message(msg models.Message) {
 }
 
 templ parseMessageContent(content string) {
-	@templ.Raw(controllers.PostProcessor(content))
+	@templ.Raw(PostProcessor(content))
 }
 
 func highlightMentions(content string) string {
