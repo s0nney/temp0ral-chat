@@ -14,6 +14,7 @@ Now look here --> *This project is **experimental ✨***.
 - Go/Gin
 - Templ
 - HTMX
+- A tad bit of vanilla JS
 - PSQL
 
 
