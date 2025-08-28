@@ -8,7 +8,7 @@ Now look here --> *This project is **experimental ✨***.
 1. `vim models/app.go` *<-- fill out*
 2. `go mod tidy`
 3. `go tool templ generate`
-4. `go run main.go`
+4. `go run .`
 
 
 ### Stack
