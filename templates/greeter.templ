@@ -11,12 +11,12 @@ templ Greeter(errorMsg string) {
 	<title>temp0ral-chat</title>
 </head>
 
-<body class="bg-dark text-light">
-	<div class="container">
-		<h1 class="title">temp0ral-chat</h1>
-		<p class="subtitle"><i>Welcome</i></p>
+<body class="bg-dark-greeter text-light">
+	<div class="container-greeter">
+		<h1 class="title-greeter">temp0ral-chat</h1>
+		<p class="subtitle-greeter"><i>Welcome</i></p>
 		if errorMsg != "" {
-		<div class="error">
+		<div class="error-greeter">
 			switch errorMsg {
 			case "invalid_key":
 			Invalid access key. Please try again.
@@ -29,10 +29,10 @@ templ Greeter(errorMsg string) {
 			}
 		</div>
 		}
-		<form class="auth-form" method="POST" action="/auth">
-			<input type="password" name="access_key" placeholder="access key required" class="input" maxlength="50"
+		<form class="auth-form-greeter" method="POST" action="/auth">
+			<input type="password" name="access_key" placeholder="access key required" class="input-greeter" maxlength="50"
 				required autocomplete="off" />
-			<button type="submit" class="button">Enter</button>
+			<button type="submit" class="button-greeter">Enter</button>
 		</form>
 	</div>
 </body>
