@@ -856,16 +856,11 @@ body.bg-dark-greeter {
 }
 
 .title-greeter {
-	margin-bottom: 0.5rem;
-	letter-spacing: 0.2rem;
-	color: #fdffff;
-	text-shadow: 0 0 25px #d7f8f8ff;
+	display: none;
 }
 
 .subtitle-greeter {
-	font-size: 1.2rem;
-	margin-bottom: 2rem;
-	color: #b3b3b3;
+	display: none;
 }
 
 .auth-form-greeter {

@@ -94,6 +94,7 @@ func WebSocketHandler(c *gin.Context) {
 		}
 	}
 }
+
 func BroadcastUserList() {
 	activeSessions := helpers.GetActiveSessions()
 

@@ -5,9 +5,10 @@ Now look here --> *This project is **experimental ✨***.
 
 
 ### Run the dev environment
-1. `go mod tidy`
-2. `go tool templ generate`
-3. `go run main.go`
+1. `vim models/app.go` *<-- fill out*
+2. `go mod tidy`
+3. `go tool templ generate`
+4. `go run .`
 
 
 ### Stack
@@ -16,5 +17,4 @@ Now look here --> *This project is **experimental ✨***.
 - HTMX
 - A tad bit of vanilla JS
 - PSQL
-
 

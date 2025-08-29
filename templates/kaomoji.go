@@ -1,8 +1,9 @@
-package controllers
+package templates
 
 import (
 	"html"
 
+	"github.com/a-h/templ"
 	"github.com/gin-gonic/gin"
 )
 
@@ -13,4 +14,9 @@ func AddEmoji(c *gin.Context) {
 
 	c.Header("Content-Type", "text/html")
 	c.String(200, `<input name="chat_message" id="message-input" placeholder="Type your message..." autocomplete="off" value="%s">`, html.EscapeString(newContent))
+}
+
+func Emojis(c *gin.Context) {
+	component := EmojiPicker()
+	templ.Handler(component).ServeHTTP(c.Writer, c.Request)
 }

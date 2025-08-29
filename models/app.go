@@ -6,7 +6,7 @@ const (
 	DBUser          = ""
 	DBPassword      = ""
 	DBName          = ""
-	DBHost          = "localhost"
+	DBHost          = ""
 	DBPort          = "5432"
 	AccessKey       = "test" // change in prod!
 	SessionDuration = 5 * time.Hour
